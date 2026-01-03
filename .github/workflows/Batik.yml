@@ -1,55 +1,74 @@
-set -e
+name: Build Batik Recovery Android 12.1 (m14x)
 
-RED='\u001B[0;31m'
-GREEN='\u001B[0;32m'
-YELLOW='\u001B[1;33m'
-NC='\u001B[0m'
+on:
+  workflow_dispatch:
+    inputs:
+      device_tree:
+        description: 'Device Tree Repo'
+        required: true
+        default: 'https://github.com/nepntt9/0android_device_samsung_m14x'
+        type: string
+      device_branch:
+        description: 'Device Tree Branch'
+        required: true
+        default: 'android-12.1'
+        type: string
+      maintainer:
+        description: 'Maintainer Name'
+        required: true
+        default: 'nepntt@gmail'
+        type: string
 
-SOURCE_DIR="$HOME/batik_a12"
-DEVICE="m14x"
-BRANCH="android-12.1"
-
-echo -e "${GREEN}Building Batik Recovery for Android 12.1 ($DEVICE)${NC}"
-
-# Dependencies
-sudo apt update && sudo apt install git repo python3 python3-pip bc bison flex libssl-dev make ccache -y
-
-# Clean source
-rm -rf "$SOURCE_DIR"
-mkdir -p "$SOURCE_DIR"
-cd "$SOURCE_DIR"
-
-# Init A12.1-compatible repo (Batik uses old manifest; fallback to TWRP-A12 fork)
-echo -e "${YELLOW}Initializing A12.1 repo...${NC}"
-repo init --depth=1 -u https://github.com/minimal-manifest-twrp/platform_manifest_twrp_a12 -b twrp-12.1
-repo sync -c --force-sync -j$(nproc --all)
-
-# Clone Batik recovery (bootable/recovery) if available, else use TWRP base
-git clone https://github.com/BatikRecovery/br_recovery.git -b master bootable/recovery || \
-echo -e "${YELLOW}Using TWRP base (Batik recovery outdated)${NC}"
-
-# Your m14x device tree (Android 12.1 branch)
-DEVICE_TREE="${1:-https://github.com/nepntt9/0android_device_samsung_m14x}"
-git clone "$DEVICE_TREE" -b android-12.1 device/samsung/m14x
-
-# Environment
-export ALLOW_MISSING_DEPENDENCIES=true
-export CCACHE_SIZE="50G"
-export CCACHE_DIR="$SOURCE_DIR/.ccache"
-. build/envsetup.sh
-
-export BR_MAINTAINER="nepntt@gmail"
-
-# Lunch (TWRP style for A12)
-lunch twrp_${DEVICE}-eng
-
-# Build
-echo -e "${GREEN}Building for Android 12.1...${NC}"
-mka bootimage recoveryimage -j$(nproc --all)
-
-# Outputs
-OUT="$SOURCE_DIR/out/target/product/$DEVICE"
-echo -e "${GREEN}Done!${NC}"
-ls -la "$OUT"/*.img "$OUT"/*.zip
-
-echo -e "${YELLOW}recovery.img ready for Odin.${NC}"
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Install Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y git repo python3 python3-pip bc bison flex libssl-dev make ccache git-lfs
+        
+    - name: Setup CCACHE
+      uses: hendrikmuhs/ccache-action@v1.2
+      with:
+        max-size: 2G
+        
+    - name: Initialize Repo (TWRP A12.1)
+      run: |
+        repo init --depth=1 -u https://github.com/minimal-manifest-twrp/platform_manifest_twrp_a12 -b twrp-12.1
+        repo sync -c --force-sync --no-clone-bundle --no-tags -j$(nproc --all)
+        
+    - name: Clone Batik Recovery (optional)
+      run: |
+        git clone https://github.com/BatikRecovery/br_recovery.git -b master bootable/recovery || echo "Using TWRP base"
+        
+    - name: Clone Device Tree
+      run: |
+        git clone https://${{ github.event.inputs.device_tree }} -b ${{ github.event.inputs.device_branch }} device/samsung/m14x
+        
+    - name: Setup Environment
+      run: |
+        export ALLOW_MISSING_DEPENDENCIES=true
+        export BR_MAINTAINER="${{ github.event.inputs.maintainer }}"
+        . build/envsetup.sh
+        lunch twrp_m14x-eng
+        
+    - name: Build Recovery
+      run: |
+        export LC_ALL=C
+        make -j$(nproc --all) recoveryimage bootimage
+        
+    - name: Rename Outputs
+      run: |
+        cp out/target/product/m14x/recovery.img recovery-${{ github.event.inputs.maintainer }}-m14x-BRP-A12.1.img
+        cp out/target/product/m14x/boot.img boot-m14x-A12.1.img || true
+        
+    - name: Upload Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: Batik-Recovery-m14x-A12.1
+        path: |
+          recovery-*.img
+          boot-*.img
+          out/target/product/m14x/*.zip
+        retention-days: 30
