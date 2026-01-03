@@ -1,7 +1,3 @@
-#!/bin/bash
-# Batik Recovery Build Script for Android 12.1 (m14x)
-# Note: Batik project is archived (TWRP 3.2.3 base). For A12.1, use fork or manual manifest.
-# Adapted from br_manifest + A12 sources: https://github.com/BatikRecovery/br_manifest [web:81][web:83]
 
 set -e
 
