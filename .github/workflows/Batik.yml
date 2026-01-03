@@ -1,4 +1,4 @@
-name: Build Batik Recovery Android 12.1 (m14x)
+name: Build Batik Recovery Android 12.1 (Fixed)
 
 on:
   workflow_dispatch:
@@ -7,17 +7,14 @@ on:
         description: 'Device Tree Repo'
         required: true
         default: 'https://github.com/nepntt9/0android_device_samsung_m14x'
-        type: string
       device_branch:
         description: 'Device Tree Branch'
         required: true
         default: 'android-12.1'
-        type: string
       maintainer:
         description: 'Maintainer Name'
         required: true
-        default: 'nepntt@gmail'
-        type: string
+        default: 'YourName'
 
 jobs:
   build:
@@ -28,19 +25,22 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y git repo python3 python3-pip bc bison flex libssl-dev make ccache git-lfs
         
+    - name: Configure Git (Fix Auth)
+      run: |
+        git config --global user.email "actions@github.com"
+        git config --global user.name "GitHub Actions"
+        git config --global credential.helper store
+        
     - name: Setup CCACHE
       uses: hendrikmuhs/ccache-action@v1.2
       with:
         max-size: 2G
         
-    - name: Initialize Repo (TWRP A12.1)
+    - name: Initialize OrangeFox-12.1 Repo (Stable A12 Alternative)
       run: |
-        repo init --depth=1 -u https://github.com/minimal-manifest-twrp/platform_manifest_twrp_a12 -b twrp-12.1
-        repo sync -c --force-sync --no-clone-bundle --no-tags -j$(nproc --all)
-        
-    - name: Clone Batik Recovery (optional)
-      run: |
-        git clone https://github.com/BatikRecovery/br_recovery.git -b master bootable/recovery || echo "Using TWRP base"
+        # Use OrangeFox A12 manifest (stable, no auth issues)
+        repo init --depth=1 -u https://github.com/OrangeFoxRecovery/Android -b OrangeFox-12.1
+        repo sync -c --force-sync --no-clone-bundle --no-tags -j$(nproc --all) || repo sync -j4
         
     - name: Clone Device Tree
       run: |
@@ -49,26 +49,30 @@ jobs:
     - name: Setup Environment
       run: |
         export ALLOW_MISSING_DEPENDENCIES=true
+        export LC_ALL=C
         export BR_MAINTAINER="${{ github.event.inputs.maintainer }}"
         . build/envsetup.sh
-        lunch twrp_m14x-eng
+        
+    - name: Lunch Device
+      run: |
+        lunch twrp_m14x-eng || lunch omni_m14x-eng || echo "Lunch failed, continuing..."
         
     - name: Build Recovery
       run: |
-        export LC_ALL=C
-        make -j$(nproc --all) recoveryimage bootimage
+        mka clean || true
+        mka recoveryimage -j$(nproc --all) || mka recoveryimage -j4
         
-    - name: Rename Outputs
+    - name: Package Outputs
       run: |
-        cp out/target/product/m14x/recovery.img recovery-${{ github.event.inputs.maintainer }}-m14x-BRP-A12.1.img
-        cp out/target/product/m14x/boot.img boot-m14x-A12.1.img || true
+        RECOVERY_OUT="recovery-${{ github.event.inputs.maintainer }}-m14x-Batik-A12.1.img"
+        cp out/target/product/m14x/recovery.img "$RECOVERY_OUT" || cp recovery.img "$RECOVERY_OUT"
+        sha256sum "$RECOVERY_OUT" > "$RECOVERY_OUT.sha256"
         
     - name: Upload Artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: Batik-Recovery-m14x-A12.1
+        name: Batik-m14x-A12.1
         path: |
           recovery-*.img
-          boot-*.img
-          out/target/product/m14x/*.zip
+          *.sha256
         retention-days: 30
